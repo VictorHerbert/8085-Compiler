@@ -1,7 +1,6 @@
-from fileinput import filename
-from msilib.schema import File
 import re
-from typing import Dict
+from typing import BinaryIO
+from xml.dom import NotFoundErr
 
 from compiler.instruction import Instruction
 
@@ -11,11 +10,16 @@ class Compiler:
 
     WORD_SIZE = 2<<8
 
+    VERBOSE_ERRORS = 1
+    VERBOSE_WARNINGS = 2
+    VERBOSE_INFOS = 3
+
     
     def __init__(self,
         code: str,
-        output_file : str,
-        listings_file : str = None
+        filename : str,
+        listings_file : str = None,
+        verbose : int = VERBOSE_ERRORS
     ) -> None:
 
         self.idx = 0
@@ -25,9 +29,10 @@ class Compiler:
         self.memory_size = 0
         self.instructions = []
 
-        self.lines = code.split('\n')
-        self.output_file = output_file
+        self.lines = code.lower().split('\n')
+        self.filename = filename
         self.listings_file = listings_file
+        self.verbose = verbose
 
         macros = {
             'org'   : Instruction(fr'{EXPRESSION}', 0, lambda args: []),
@@ -37,17 +42,15 @@ class Compiler:
 
         single_inst = lambda op : Instruction([], 1, lambda args: [op])
         imm_inst = lambda op : Instruction([fr'{EXPRESSION}'], 2, lambda args: [op, self.evaluate_expr(args[0])])
-        addr_imm_inst = lambda op : Instruction([fr'{EXPRESSION}'], 3, lambda args: [op, self.evaluate_expr(args[0])%256, self.evaluate_expr(args[0])//256])
+        addr_imm_inst = lambda op : Instruction([fr'{EXPRESSION}'], 3, lambda args: [op, self.evaluate_expr(args[0], 1<<16)%256, self.evaluate_expr(args[0], 1<<16)//256])
         reg_inst_s = lambda op : Instruction([fr'{REGISTER}'], 1, lambda args: [op + self.evaluate_register(args[0])])
-        reg_inst_d = lambda op : Instruction([fr'{REGISTER}'], 1, lambda args: [op + self.evaluate_register(args[0])<<3])
-        reg_inst_ds = lambda op : Instruction([fr'{REGISTER}', fr'{REGISTER}'], 1, lambda args: [op + self.evaluate_register(args[0])<<3 + self.evaluate_register(args[1])])
+        reg_inst_d = lambda op : Instruction([fr'{REGISTER}'], 1, lambda args: [op + (self.evaluate_register(args[0])<<3)])
+        reg_inst_ds = lambda op : Instruction([fr'{REGISTER}', fr'{REGISTER}'], 1, lambda args: [op + (self.evaluate_register(args[0])<<3) + self.evaluate_register(args[1])])
         reg_imm_inst_d = lambda op : Instruction([fr'{REGISTER}', fr'{EXPRESSION}'], 2, lambda args: [op + self.evaluate_register(args[0])<<3, self.evaluate_expr(args[1])])
         reg_double_inst = lambda op : Instruction([fr'{REGISTER}'], 1, lambda args: [op + self.evaluate_double_register(args[0])<<4])
         reg_double_inst_r = lambda op : Instruction([fr'{REGISTER}'], 1, lambda args: [op + self.evaluate_bd_register(args[0])<<4])
         reg_double_inst_addr = lambda op : Instruction([fr'{REGISTER}', fr'{EXPRESSION}'], 3, lambda args: [op + self.evaluate_double_register(args[0])<<4, self.evaluate_expr(args[1])%256, self.evaluate_expr(args[1])//256])
-
-        #TODO evaluete with fixed size
-        rst_inst = lambda op : Instruction([fr'{NUMBER}'], 1, lambda args: [op + self.evaluate_expression(args[0])<<3])
+        rst_inst = lambda op : Instruction([fr'{NUMBER}'], 1, lambda args: [op + self.evaluate_expression(args[0], 1<<3)<<3])
 
         instructions = {
             'aci':  imm_inst(0b11001110),
@@ -133,16 +136,38 @@ class Compiler:
         self.isa = instructions | macros
 
     def  evaluate_register(self, register: str) -> int:
-        raise NotImplementedError()
+        regs = {'a': 0b111, 'b': 0b000, 'c': 0b001, 'd': 0b010, 'e': 0b011, 'h': 0b100, 'l': 0b101}
+
+        if not register in regs:
+            raise NotFoundErr(register)
+        
+        return regs[register]
 
     def  evaluate_double_register(self, register: str) -> int:
-        raise NotImplementedError()
-        
-    def evaluate_expr(self, expr: str) -> int:
-        expr = re.sub(fr'(?P<init>^|[+-/*()])(?P<name>{NAME})', lambda match: match.group('init') + str(self.labels[match.group('name')]), expr)
-        expr = re.sub(r'(?P<hex_number>[0-9a-f]+)h', r'0x\g<hex_number>', expr)
+        regs = {'b': 0b000, 'd': 0b010, 'h': 0b100}
 
-        return eval(expr)
+        if not register in regs:
+            raise NotFoundErr(register)
+        
+        return regs[register]
+    
+    def  evaluate_bd_register(self, register: str) -> int:
+        bd = {'b' : 0b0, 'd': 0b1}
+        
+        if not register in bd:
+            raise NotFoundErr(register)
+        
+        return bd[register]
+        
+    def evaluate_expr(self, expr: str, limit: int = 1<<8) -> int:
+        expr = re.sub(fr'(?P<init> |^|[+-/*()])(?P<name>{NAME})', lambda match: match.group('init') + str(self.labels[match.group('name')]), expr)
+        expr = re.sub(r'(?P<hex_number>[0-9a-f]+)h', r'0x\g<hex_number>', expr)
+        res = eval(expr)
+
+        if res > limit:
+            raise OverflowError()
+
+        return res
    
     def pre_compile(self, line_idx: int, line: str) -> None:
         rg = fr'^(?P<equ_label>{NAME}) *equ *(?P<expression>{EXPRESSION}) *$'
@@ -151,7 +176,7 @@ class Compiler:
             equ_label = match.group('equ_label')
             equ_expression = match.group('expression')
 
-            self.labels[equ_label] = self.evaluate_expr(equ_expression)
+            self.labels[equ_label] = self.evaluate_expr(equ_expression, 1<<16)
         else:
             rg = fr'^((?P<label>{NAME}) *:)? *(?P<mnemonic>{NAME}) *(?P<args>.*) *$'
             match = re.match(rg, line)
@@ -159,7 +184,7 @@ class Compiler:
             if match:
                 label = match.group('label')
                 mnemonic = match.group('mnemonic')
-                args = match.group('args').split(',')
+                args = match.group('args').replace(' ','').split(',')
             
                 if not mnemonic in self.isa:
                     raise ValueError('Instruction not found')
@@ -179,39 +204,61 @@ class Compiler:
     def compile_instruction(self, instruction: str) -> None:
         line_idx, idx, mnemonic, args = instruction
         for i, v in enumerate(self.isa[mnemonic].assemble(args)):
+            if (not self.memory[idx+i] is None) and self.verbose >= 2:
+                print(f'[WARNING] {self.filename}: Memory overwrite at {idx+i}')
+
             self.memory[idx+i] = v
     
-    def compile(self, output : File, listing = None) -> int:
+    def compile(self, output: BinaryIO, listing = None) -> int:
         error_count = 0
         for i, line in enumerate(self.lines):
             if line != '':
+                line = line.split(';')[0]
                 try:
                     self.pre_compile(i, line)
                 except KeyError as e:
                     error_count += 1
-                    print(f'[ERROR](precompilation) {self.filename}({i+1}): Unknown symbol {e}')
+                    print(f'[ERROR] {self.filename}({i+1}): Unknown symbol {e}')
                 except SyntaxError as e:
                     error_count += 1
-                    print(f'[ERROR](precompilation) {self.filename}({i+1}): {e.args[0]}')
+                    print(f'[ERROR] {self.filename}({i+1}): {e.args[0]}')
                 
         self.memory_size = max(self.memory_size, self.idx)
-        self.memory = [0]*self.memory_size
+        self.memory = [None]*self.memory_size
 
         listing_str = r''
+        padding = 10
         for instruction in self.instructions:
             i, idx, mnemonic, args = instruction
             
-            if mnemonic != 'org':
-                self.compile_instruction(instruction)
             try:
-                listing_str += f'{hex(idx).ljust(10)}{self.lines[i]}\n'
+                if mnemonic != 'org':
+                    self.compile_instruction(instruction)
+                    listing_str += f'{hex(idx).ljust(padding)}{self.lines[i]}\n'
+                else:
+                    listing_str += f'{" "*padding} {self.lines[i]}\n'
             except KeyError as e:
                 error_count += 1
-                print(f'[ERROR](compilation) {self.filename}({i}): Unknown symbol {e}')
+                print(f'[ERROR] {self.filename}({i+1}): Unknown symbol {e}')
+            except OverflowError as e:
+                error_count += 1
+                print(f'[ERROR] {self.filename}({i+1}): Overflow error {e}')
+            except NotFoundErr as e:
+                error_count += 1
+                print(f'[ERROR] {self.filename}({i+1}): Register {e} not found')
 
         if not listing is None:
             print(listing_str, file=listing)
         if not error_count:
+            self.memory = [(x if (not x is None) else 0) for x in self.memory]
             output.write(bytearray(self.memory))
+        
+        if error_count == 0:
+            if self.verbose >= self.VERBOSE_INFOS:
+                print('Successful Compilation')
+        else:
+            print()
+            print(f'{error_count} error{"s" if error_count != 1 else ""} found')
+            print('Compilation aborted')
 
         return error_count

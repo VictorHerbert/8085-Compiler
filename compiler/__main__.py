@@ -1,5 +1,6 @@
 import sys
 import argparse
+from tabnanny import verbose
 
 from .instruction import Instruction
 from .tokens import *
@@ -14,13 +15,6 @@ args = parser.parse_args()
 
 
 code = args.i.read()
-compiler = Compiler(code, args.i.name)
+compiler = Compiler(code=code, filename=args.i.name, verbose=Compiler.VERBOSE_WARNINGS)
 
 error_count = compiler.compile(args.o, args.l)
-
-if error_count == 0:
-    print('Successful Compilation')
-else:
-    print()
-    print(f'{error_count} error{"s" if error_count != 1 else ""} found')
-    print('Compilation aborted')
