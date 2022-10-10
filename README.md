@@ -17,4 +17,6 @@ where -l is an optional listing output
 
 ## VsCode
 
+![](https://github.com/VictorHerbert/8085-Compiler/blob/main/resources/screenshot.png?raw=true2)
+
 The compiler can be run as a task or even in debug mode using provided launch.json and tasks.json files on .vscode folder.
