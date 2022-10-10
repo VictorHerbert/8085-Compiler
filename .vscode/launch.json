@@ -1,0 +1,11 @@
+{
+    "configurations": [
+        {
+            "name": "Debugger compiler",
+            "type": "python",
+            "request": "launch",
+            "module": "compiler",
+            "args": ["-i", "${file}", "-o", "${fileDirname}/${fileBasenameNoExtension}.bin", "-l", "${fileDirname}/listings.txt"],
+        }
+    ]
+}

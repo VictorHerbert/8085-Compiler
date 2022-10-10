@@ -49,8 +49,8 @@ class Compiler:
         reg_imm_inst_d = lambda op : Instruction([fr'{REGISTER}', fr'{EXPRESSION}'], 2, lambda args: [op + self.evaluate_register(args[0])<<3, self.evaluate_expr(args[1])])
         reg_double_inst = lambda op : Instruction([fr'{REGISTER}'], 1, lambda args: [op + self.evaluate_double_register(args[0])<<4])
         reg_double_inst_r = lambda op : Instruction([fr'{REGISTER}'], 1, lambda args: [op + self.evaluate_bd_register(args[0])<<4])
-        reg_double_inst_addr = lambda op : Instruction([fr'{REGISTER}', fr'{EXPRESSION}'], 3, lambda args: [op + self.evaluate_double_register(args[0])<<4, self.evaluate_expr(args[1])%256, self.evaluate_expr(args[1])//256])
-        rst_inst = lambda op : Instruction([fr'{NUMBER}'], 1, lambda args: [op + self.evaluate_expression(args[0], 1<<3)<<3])
+        reg_double_inst_addr = lambda op : Instruction([fr'{REGISTER}', fr'{EXPRESSION}'], 3, lambda args: [op + self.evaluate_double_register(args[0])<<4, self.evaluate_expr(args[1], 1<<16)%256, self.evaluate_expr(args[1], 1<<16)//256])
+        rst_inst = lambda op : Instruction([fr'{NUMBER}'], 1, lambda args: [op + self.evaluate_expr(args[0], 1<<3)<<3])
 
         instructions = {
             'aci':  imm_inst(0b11001110),
@@ -136,7 +136,7 @@ class Compiler:
         self.isa = instructions | macros
 
     def  evaluate_register(self, register: str) -> int:
-        regs = {'a': 0b111, 'b': 0b000, 'c': 0b001, 'd': 0b010, 'e': 0b011, 'h': 0b100, 'l': 0b101}
+        regs = {'a': 0b111, 'b': 0b000, 'c': 0b001, 'd': 0b010, 'e': 0b011, 'h': 0b100, 'l': 0b101, 'm': 0b110}
 
         if not register in regs:
             raise NotFoundErr(register)
@@ -170,7 +170,7 @@ class Compiler:
         return res
    
     def pre_compile(self, line_idx: int, line: str) -> None:
-        rg = fr'^(?P<equ_label>{NAME}) *equ *(?P<expression>{EXPRESSION}) *$'
+        rg = fr'^ *(?P<equ_label>{NAME}) *equ *(?P<expression>{EXPRESSION}) *$'
         match = re.match(rg, line)
         if match:
             equ_label = match.group('equ_label')
@@ -178,7 +178,7 @@ class Compiler:
 
             self.labels[equ_label] = self.evaluate_expr(equ_expression, 1<<16)
         else:
-            rg = fr'^((?P<label>{NAME}) *:)? *(?P<mnemonic>{NAME}) *(?P<args>.*) *$'
+            rg = fr'^ *((?P<label>{NAME}) *:)? *(?P<mnemonic>{NAME}) *(?P<args>.*) *$'
             match = re.match(rg, line)
 
             if match:
@@ -187,7 +187,7 @@ class Compiler:
                 args = match.group('args').replace(' ','').split(',')
             
                 if not mnemonic in self.isa:
-                    raise ValueError('Instruction not found')
+                    raise SyntaxError()
 
                 if mnemonic == 'org':
                     self.memory_size = max(self.memory_size, self.idx)
@@ -205,7 +205,7 @@ class Compiler:
         line_idx, idx, mnemonic, args = instruction
         for i, v in enumerate(self.isa[mnemonic].assemble(args)):
             if (not self.memory[idx+i] is None) and self.verbose >= 2:
-                print(f'[WARNING] {self.filename}: Memory overwrite at {idx+i}')
+                print(f'[Warning] {self.filename}({line_idx}): Memory overwrite at {hex(idx+i)}')
 
             self.memory[idx+i] = v
     
@@ -221,7 +221,7 @@ class Compiler:
                     print(f'[ERROR] {self.filename}({i+1}): Unknown symbol {e}')
                 except SyntaxError as e:
                     error_count += 1
-                    print(f'[ERROR] {self.filename}({i+1}): {e.args[0]}')
+                    print(f'[ERROR] {self.filename}({i+1}): Instruction not found')
                 
         self.memory_size = max(self.memory_size, self.idx)
         self.memory = [None]*self.memory_size
@@ -246,10 +246,13 @@ class Compiler:
             except NotFoundErr as e:
                 error_count += 1
                 print(f'[ERROR] {self.filename}({i+1}): Register {e} not found')
+            
 
-        if not listing is None:
-            print(listing_str, file=listing)
-        if not error_count:
+        
+        if error_count != 0:
+            if not listing is None:
+                print(listing_str, file=listing)
+
             self.memory = [(x if (not x is None) else 0) for x in self.memory]
             output.write(bytearray(self.memory))
         
@@ -262,3 +265,4 @@ class Compiler:
             print('Compilation aborted')
 
         return error_count
+ 
