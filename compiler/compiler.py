@@ -247,16 +247,14 @@ class Compiler:
                 error_count += 1
                 print(f'[ERROR] {self.filename}({i+1}): Register {e} not found')
             
-
         
-        if error_count != 0:
+        if error_count == 0:
             if not listing is None:
                 print(listing_str, file=listing)
 
             self.memory = [(x if (not x is None) else 0) for x in self.memory]
             output.write(bytearray(self.memory))
-        
-        if error_count == 0:
+
             if self.verbose >= self.VERBOSE_INFOS:
                 print('Successful Compilation')
         else:
