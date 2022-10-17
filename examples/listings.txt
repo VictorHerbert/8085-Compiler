@@ -1,0 +1,103 @@
+0x0       jmp start
+0x3       jmp 1a54h
+0x6       data0:  db const2
+0x7       data1:  db const1
+0x8       data1:  db const1
+0x9       vector: ds 4
+0xd               db 2
+                   org 30
+0x1e      start:  mvi a, 4
+0x20              mvi a, const1+5
+0x22      end:    mvi d, const2
+0x24              mvi c, 00    ;store 00 in c 
+0x26              lda 5000     ;1st value, load a from memory location 5000
+0x29              mov b, a     ;copy content of a to b
+0x2a              dcr b        ;decrement b
+0x2b              ora a        ;check is value in a (or b) is 0 or not
+0x2c              jz exit      ;if zero, jump to exit
+0x2f              lda 5001     ;2nd value, load a from memory location 5001
+0x32              mov d, a     ;copy content of a to d
+0x33              ora a        ;check if value of a (or d) is 0 or not
+0x34      loop:   jz exit      ;if zero, jump to exit
+0x37              add d        ;add d to a
+0x38              jnc nocarry  ;if carry is not generated, jump to label nocarry
+0x3b              inr c        ;if carry is generated, increment c
+0x3c      nocarry:dcr b        ;decrement b
+0x3d              jmp loop     ;jump to label loop
+0x40      exit:   sta 5003     ;store content of a (lower order of result) at memory location 5003
+0x43              mov a, c     ;copy content of c to a
+0x44              sta 5002     ;store content of a(higher order of resut) at memory location 5002
+0x47              hlt          ;halt program
+0x48           lda 5001       ;load value of divisor from address 5001 
+0x4b           mov d, a       ;move divisor from a to d
+0x4c           lda 5000       ;load value of dividend from address 5000 
+0x4f           mvi c, 0ffh    ;c is used to store the quotient, initial value is ff
+0x51      div: inr c          ;increment quotient
+0x52           sub d          ;subtract d (divisor) from a (dividend)
+0x53           jnc div        ;jump if no carry to label div
+0x56           add d
+0x57           sta 5002       ;store remainder at memory location 5002
+0x5a           mov a, c       ;copy content of c (quotient) into a
+0x5b           sta 5003       ;store quotient at location 5003
+0x5e           hlt
+0x5f               lxi h, 5000   ;starting address of array, stores array size
+0x62               mov c, m      ;store array size in c, used as counter for outerloop
+0x63               dcr c         ;decrement outloop counter
+0x64      outloop: mov d, c      ;copy counter in d, used as inloop counter
+0x65               lxi h, 5001   ;5001 stores 1st element of array
+0x68       inloop: mov a, m      ;store element of array in a
+0x69               inx h         ;goto next address
+0x6a               cmp m         ;compare a (element) with next element
+0x6b               jc skip       ;if a < m, jump to skip
+0x6e               mov b, m      ;swap elements
+0x6f               mov m, a
+0x70               dcx h
+0x71               mov m, b
+0x72               inx h
+0x73         skip: dcr d         ;decrement inloop counter
+0x74               jnz inloop    ;if d!=0 jump to inloop
+0x77               dcr c         ;decrement outloop counter
+0x78               jnz outloop   ;if c!=0 jump to outloop
+0x7b               hlt           ;halt program
+0x7c               lxi h, 5000   ;starting address of array, stores array size
+0x7f               mov c, m      ;store array size in c, used as counter for outerloop
+0x80               dcr c         ;decrement outloop counter
+0x81      outloop: mov d, c      ;copy counter in d, used as inloop counter
+0x82               lxi h, 5001   ;5001 stores 1st element of array
+0x85       inloop: mov a, m      ;store element of array in a
+0x86               inx h         ;goto next address
+0x87               cmp m         ;compare a (element) with next element
+0x88               jnc skip       ;if a > m, jump to skip
+0x8b               mov b, m      ;swap elements
+0x8c               mov m, a
+0x8d               dcx h
+0x8e               mov m, b
+0x8f               inx h
+0x90         skip: dcr d         ;decrement inloop counter
+0x91               jnz inloop    ;if d!=0 jump to inloop
+0x94               dcr c         ;decrement outloop counter
+0x95               jnz outloop   ;if c!=0 jump to outloop
+0x98               hlt           ;halt program
+0x99           lda 5001       ;load value of divisor from address 5001 
+0x9c           mov d, a       ;move divisor from a to d
+0x9d           lda 5000       ;load value of dividend from address 5000 
+0xa0           mvi c, 0ffh    ;c is used to store the quotient, initial value is ff
+0xa2      div: inr c          ;increment quotient
+0xa3           sub d          ;subtract d (divisor) from a (dividend)
+0xa4           jnc div        ;jump if no carry to label div
+0xa7           add d
+0xa8           sta 5002       ;store remainder at memory location 5002
+0xab           mov a, c       ;copy content of c (quotient) into a
+0xac           sta 5003       ;store quotient at location 5003
+0xaf           hlt
+0xb0            mvi b, 01h   ;load initial result as 1 (even)
+0xb2            lda 5000     ;load value from memory location 5000 into a
+0xb5       div: sbi 02h      ;subtract 2 from a. a = a - 2
+0xb6            jnc div      ;if no carry, jump to div label
+0xb9            adi 02h      ;add 2 to a. a = a + 2
+0xbb            jz skip      ;if a = 0, jumo to skip
+0xbe            dcr b        ;if a != 0, number is odd. decrement b
+0xbf      skip: mov a, b     ;copy result in a
+0xc0            sta 5001     ;store result at memory location 5001
+0xc3            hlt          ;halt program
+

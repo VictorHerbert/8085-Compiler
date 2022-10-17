@@ -7,8 +7,7 @@ jmp 1a54h
 data0:  db const2
 data1:  db const1
 data1:  db const1
-        
-org 0
+
 vector: ds 4
         db 2
         org 30
